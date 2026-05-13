@@ -1,4 +1,4 @@
-# Knowledgee Catalog Samples
+# Samples
 
 The samples demonstrate the use of Knowledge Catalog to manage metadata and
 context to power agents.
