@@ -128,6 +128,106 @@ func TestRunVersionPrintsBuildInfo(t *testing.T) {
 	}
 }
 
+func TestRunMCPInstallDryRunWritesServiceFileWithoutEnabling(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bundle := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"mcp", "install", "--bundle", bundle, "--addr", ":9191", "--dry-run"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp install) = %d, stderr = %q", code, stderr.String())
+	}
+
+	// On this sandbox (Linux), install should have written a systemd user
+	// unit under $HOME/.config/systemd/user — verified without touching
+	// the real service manager since --dry-run skips the enable step.
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "okf-mcp.service")
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		t.Fatalf("service unit not written at %q: %v", unitPath, err)
+	}
+	if !strings.Contains(string(data), "--bundle "+bundle) || !strings.Contains(string(data), "--addr :9191") {
+		t.Errorf("service unit content = %q, want bundle/addr flags baked in", data)
+	}
+	if !strings.Contains(stderr.String(), unitPath) {
+		t.Errorf("stderr = %q, want it to mention the written path", stderr.String())
+	}
+}
+
+func TestRunMCPStatusReportsNotInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"mcp", "status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp status) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "not installed") {
+		t.Errorf("stdout = %q, want not-installed status", stdout.String())
+	}
+}
+
+func TestRunMCPStatusReportsInstalledAfterDryRunInstall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var installOut, installErr bytes.Buffer
+	if code := run([]string{"mcp", "install", "--bundle", t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
+		t.Fatalf("run(mcp install) = %d, stderr = %q", code, installErr.String())
+	}
+
+	// --dry-run skips the live systemctl/launchctl query (see
+	// TestRunMCPStatusReportsNotInstalled for the "nothing installed"
+	// case, which also never invokes a real service manager). Without
+	// this flag, status would shell out to query live state whenever the
+	// service file exists — never appropriate in a test.
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"mcp", "status", "--dry-run"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp status) = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "not installed") {
+		t.Errorf("stdout = %q, want installed status", stdout.String())
+	}
+}
+
+func TestRunMCPUninstallDryRunRemovesServiceFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var installOut, installErr bytes.Buffer
+	if code := run([]string{"mcp", "install", "--bundle", t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
+		t.Fatalf("run(mcp install) = %d, stderr = %q", code, installErr.String())
+	}
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "okf-mcp.service")
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("precondition failed, service unit not present: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"mcp", "uninstall", "--dry-run"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp uninstall) = %d, stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
+		t.Errorf("service unit still exists after uninstall: %v", err)
+	}
+}
+
+func TestRunMCPUninstallReportsWhenNothingInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"mcp", "uninstall", "--dry-run"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp uninstall) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "not installed") {
+		t.Errorf("stdout = %q, want not-installed message", stdout.String())
+	}
+}
+
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
 

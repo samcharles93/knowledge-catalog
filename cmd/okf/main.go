@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/samcharles93/knowledge-catalog/okf"
@@ -49,7 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "visualize":
 		return runVisualize(args[1:], stderr)
 	case "mcp":
-		return runMCP(args[1:], stderr)
+		return runMCP(args[1:], stdout, stderr)
 	case "version":
 		_, _ = fmt.Fprintf(stdout, "okf %s (commit %s, built %s)\n", version, commit, date)
 		return 0
@@ -249,7 +251,21 @@ func runVisualize(args []string, stderr io.Writer) int {
 	return 0
 }
 
-func runMCP(args []string, stderr io.Writer) int {
+// runMCP dispatches `okf mcp install|uninstall|status` to their handlers;
+// with no subcommand (or one starting with "-"), it runs the MCP server
+// directly in the foreground, as before.
+func runMCP(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "install":
+			return runMCPInstall(args[1:], stderr)
+		case "uninstall":
+			return runMCPUninstall(args[1:], stdout, stderr)
+		case "status":
+			return runMCPStatus(args[1:], stdout, stderr)
+		}
+	}
+
 	fs := newFlagSet("mcp", stderr)
 	bundle := fs.String("bundle", ".okf", "Path to bundle root")
 	addr := fs.String("addr", ":8080", "HTTP listen address for the MCP Streamable HTTP server")
@@ -262,6 +278,124 @@ func runMCP(args []string, stderr io.Writer) int {
 	if err := http.ListenAndServe(*addr, srv); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
+	}
+	return 0
+}
+
+// execRun runs an OS service-manager command (systemctl/launchctl) and
+// returns its combined output. The production okf.ServiceInstaller.Run
+// implementation; tests inject a fake instead.
+func execRun(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	return string(out), err
+}
+
+func newServiceInstaller() (okf.ServiceInstaller, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return okf.ServiceInstaller{}, err
+	}
+	return okf.ServiceInstaller{GOOS: runtime.GOOS, HomeDir: home, Run: execRun}, nil
+}
+
+func runMCPInstall(args []string, stderr io.Writer) int {
+	fs := newFlagSet("mcp install", stderr)
+	bundle := fs.String("bundle", ".okf", "Path to bundle root")
+	addr := fs.String("addr", ":8080", "HTTP listen address for the MCP Streamable HTTP server")
+	binPath := fs.String("bin", "", "Path to the okf binary to run as the service (default: the currently running binary)")
+	dryRun := fs.Bool("dry-run", false, "Write the service file without registering or starting it")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	bin := *binPath
+	if bin == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		bin = exe
+	}
+	absBundle, err := filepath.Abs(*bundle)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	installer, err := newServiceInstaller()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	cfg := okf.ServiceConfig{BundleRoot: absBundle, Addr: *addr, BinPath: bin}
+	path, err := installer.Install(cfg, !*dryRun)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	if *dryRun {
+		_, _ = fmt.Fprintf(stderr, "Wrote service file to %s (not enabled; re-run without --dry-run to register and start it).\n", path)
+	} else {
+		_, _ = fmt.Fprintf(stderr, "Installed and started the OKF MCP service: %s\n", path)
+	}
+	return 0
+}
+
+func runMCPUninstall(args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("mcp uninstall", stderr)
+	dryRun := fs.Bool("dry-run", false, "Remove the service file without stopping it via the service manager")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	installer, err := newServiceInstaller()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	found, path, err := installer.Uninstall(!*dryRun)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !found {
+		_, _ = fmt.Fprintf(stdout, "OKF MCP service is not installed (%s not found).\n", path)
+		return 0
+	}
+	_, _ = fmt.Fprintf(stderr, "Removed the OKF MCP service: %s\n", path)
+	return 0
+}
+
+func runMCPStatus(args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("mcp status", stderr)
+	dryRun := fs.Bool("dry-run", false, "Report installation state without querying the live service manager")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	installer, err := newServiceInstaller()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	status, err := installer.Status(!*dryRun)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !status.Installed {
+		_, _ = fmt.Fprintf(stdout, "OKF MCP service is not installed (%s not found).\n", status.Path)
+		return 0
+	}
+	if status.State != "" {
+		_, _ = fmt.Fprintf(stdout, "OKF MCP service is installed at %s (state: %s).\n", status.Path, status.State)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "OKF MCP service is installed at %s.\n", status.Path)
 	}
 	return 0
 }
