@@ -68,12 +68,7 @@ func ownedByPrefix(conceptID string, prefixes []string) bool {
 
 // pruneStaleConcepts deletes existing bundle files under prunePrefixes that
 // are no longer present in keep, then removes any directories left empty by
-// those deletions. Directory cleanup is scoped strictly to prunePrefixes'
-// own top-level namespace directories (e.g. "codebase") -- it must never
-// walk the whole bundleRoot, or it would delete empty directories that
-// belong to entirely unrelated parts of the bundle (e.g. the "rules" and
-// "services" directories okf init scaffolds, which this extractor has no
-// business touching).
+// those deletions.
 func pruneStaleConcepts(bundleRoot string, prunePrefixes []string, keep map[string]Document) error {
 	if len(prunePrefixes) == 0 {
 		return nil
@@ -93,30 +88,14 @@ func pruneStaleConcepts(bundleRoot string, prunePrefixes []string, keep map[stri
 			return err
 		}
 	}
-	for _, prefix := range prunePrefixes {
-		if strings.Contains(prefix, "/") {
-			// Names a single concept (e.g. "architecture/overview"), not a
-			// directory namespace this call owns -- its parent directory
-			// holds sibling concepts that must not be swept away.
-			continue
-		}
-		if err := removeEmptyDirs(filepath.Join(bundleRoot, prefix)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return removeEmptyDirs(bundleRoot)
 }
 
 // removeEmptyDirs removes empty directories nested under root, bottom-up,
-// leaving root itself in place even if it ends up empty. A missing root
-// (the namespace directory was never created, e.g. no codebase/ yet) is not
-// an error -- there's simply nothing to clean up.
+// leaving root itself in place even if it ends up empty.
 func removeEmptyDirs(root string) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
 	for _, entry := range entries {
