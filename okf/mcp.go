@@ -120,6 +120,20 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
 }
 
+// NewMultiBundleServer mounts one MCPServer per named bundle onto a single
+// HTTP mux, each served at "/<name>/" -- so a single okf mcp process (and a
+// single background OS service) can serve every project's bundle
+// concurrently, instead of requiring a separate process per project.
+func NewMultiBundleServer(bundles map[string]string) *http.ServeMux {
+	mux := http.NewServeMux()
+	for name, root := range bundles {
+		prefix := "/" + name + "/"
+		srv := NewMCPServer(root)
+		mux.Handle(prefix, http.StripPrefix(strings.TrimSuffix(prefix, "/"), srv))
+	}
+	return mux
+}
+
 type getConceptArgs struct {
 	ConceptID string `json:"concept_id" jsonschema:"Concept ID relative to bundle root"`
 }

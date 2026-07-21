@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -14,9 +15,25 @@ const systemdUnitName = "okf-mcp.service"
 // ServiceConfig describes an `okf mcp` invocation to register as a
 // background OS service.
 type ServiceConfig struct {
-	BundleRoot string
-	Addr       string
-	BinPath    string
+	Bundles map[string]string // name -> bundle root, each mounted at /<name>/
+	Addr    string
+	BinPath string
+}
+
+// bundleArgs renders cfg.Bundles as "--bundle name=path" token pairs,
+// sorted by name for deterministic ExecStart/ProgramArguments output (map
+// iteration order is not stable).
+func (cfg ServiceConfig) bundleArgs() []string {
+	names := make([]string, 0, len(cfg.Bundles))
+	for name := range cfg.Bundles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	args := make([]string, 0, len(names)*2)
+	for _, name := range names {
+		args = append(args, "--bundle", name+"="+cfg.Bundles[name])
+	}
+	return args
 }
 
 // SystemdUnit renders a systemd user unit file that runs `okf mcp` as a
@@ -28,18 +45,22 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%s mcp --bundle %s --addr %s
+ExecStart=%s mcp %s --addr %s
 Restart=on-failure
 RestartSec=2
 
 [Install]
 WantedBy=default.target
-`, cfg.BinPath, cfg.BundleRoot, cfg.Addr)
+`, cfg.BinPath, strings.Join(cfg.bundleArgs(), " "), cfg.Addr)
 }
 
 // LaunchdPlist renders a launchd LaunchAgent property list that runs
 // `okf mcp` as a background service on macOS.
 func LaunchdPlist(cfg ServiceConfig) string {
+	var bundleElems strings.Builder
+	for _, a := range cfg.bundleArgs() {
+		fmt.Fprintf(&bundleElems, "\t\t<string>%s</string>\n", a)
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -50,9 +71,7 @@ func LaunchdPlist(cfg ServiceConfig) string {
 	<array>
 		<string>%s</string>
 		<string>mcp</string>
-		<string>--bundle</string>
-		<string>%s</string>
-		<string>--addr</string>
+%s		<string>--addr</string>
 		<string>%s</string>
 	</array>
 	<key>RunAtLoad</key>
@@ -61,7 +80,7 @@ func LaunchdPlist(cfg ServiceConfig) string {
 	<true/>
 </dict>
 </plist>
-`, launchdLabel, cfg.BinPath, cfg.BundleRoot, cfg.Addr)
+`, launchdLabel, cfg.BinPath, bundleElems.String(), cfg.Addr)
 }
 
 // ServiceStatus reports whether `okf mcp` is registered as a background

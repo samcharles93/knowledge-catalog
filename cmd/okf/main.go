@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/samcharles93/knowledge-catalog/okf"
@@ -344,19 +345,59 @@ func runMCP(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fs := newFlagSet("mcp", stderr)
-	bundle := fs.String("bundle", ".okf", "Path to bundle root")
 	addr := fs.String("addr", ":8080", "HTTP listen address for the MCP Streamable HTTP server")
+	var bundleFlags stringSliceFlag
+	fs.Var(&bundleFlags, "bundle", "name=path pair mounting a bundle at /<name>/ (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	srv := okf.NewMCPServer(*bundle)
-	_, _ = fmt.Fprintf(stderr, "Serving OKF MCP server for %s on http://%s\n", *bundle, *addr)
-	if err := http.ListenAndServe(*addr, srv); err != nil {
+	bundles, err := parseBundleFlags(bundleFlags)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if len(bundles) == 0 {
+		_, _ = fmt.Fprintln(stderr, "mcp: at least one --bundle name=path is required")
+		return 2
+	}
+
+	mux := okf.NewMultiBundleServer(bundles)
+	for _, name := range sortedKeys(bundles) {
+		_, _ = fmt.Fprintf(stderr, "Serving OKF MCP bundle %q from %s at http://%s/%s/\n", name, bundles[name], *addr, name)
+	}
+	if err := http.ListenAndServe(*addr, mux); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
+}
+
+// parseBundleFlags parses repeatable "name=path" values (from a --bundle
+// flag) into a name -> bundle root map, rejecting malformed entries and
+// duplicate names.
+func parseBundleFlags(raw []string) (map[string]string, error) {
+	bundles := make(map[string]string, len(raw))
+	for _, r := range raw {
+		name, path, ok := strings.Cut(r, "=")
+		if !ok || name == "" || path == "" {
+			return nil, fmt.Errorf("invalid --bundle value %q; want name=path", r)
+		}
+		if _, exists := bundles[name]; exists {
+			return nil, fmt.Errorf("duplicate --bundle name %q", name)
+		}
+		bundles[name] = path
+	}
+	return bundles, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // execRun runs an OS service-manager command (systemctl/launchctl) and
@@ -377,12 +418,32 @@ func newServiceInstaller() (okf.ServiceInstaller, error) {
 
 func runMCPInstall(args []string, stderr io.Writer) int {
 	fs := newFlagSet("mcp install", stderr)
-	bundle := fs.String("bundle", ".okf", "Path to bundle root")
 	addr := fs.String("addr", ":8080", "HTTP listen address for the MCP Streamable HTTP server")
 	binPath := fs.String("bin", "", "Path to the okf binary to run as the service (default: the currently running binary)")
 	dryRun := fs.Bool("dry-run", false, "Write the service file without registering or starting it")
+	var bundleFlags stringSliceFlag
+	fs.Var(&bundleFlags, "bundle", "name=path pair mounting a bundle at /<name>/ (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	bundles, err := parseBundleFlags(bundleFlags)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if len(bundles) == 0 {
+		_, _ = fmt.Fprintln(stderr, "mcp install: at least one --bundle name=path is required")
+		return 2
+	}
+	absBundles := make(map[string]string, len(bundles))
+	for name, path := range bundles {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		absBundles[name] = abs
 	}
 
 	bin := *binPath
@@ -394,11 +455,6 @@ func runMCPInstall(args []string, stderr io.Writer) int {
 		}
 		bin = exe
 	}
-	absBundle, err := filepath.Abs(*bundle)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
-	}
 
 	installer, err := newServiceInstaller()
 	if err != nil {
@@ -406,7 +462,7 @@ func runMCPInstall(args []string, stderr io.Writer) int {
 		return 1
 	}
 
-	cfg := okf.ServiceConfig{BundleRoot: absBundle, Addr: *addr, BinPath: bin}
+	cfg := okf.ServiceConfig{Bundles: absBundles, Addr: *addr, BinPath: bin}
 	path, err := installer.Install(cfg, !*dryRun)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)

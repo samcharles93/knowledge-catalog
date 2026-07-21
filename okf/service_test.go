@@ -10,9 +10,9 @@ import (
 
 func testServiceConfig() ServiceConfig {
 	return ServiceConfig{
-		BundleRoot: "/home/sam/project/.okf",
-		Addr:       ":8080",
-		BinPath:    "/usr/local/bin/okf",
+		Bundles: map[string]string{"project": "/home/sam/project/.okf"},
+		Addr:    ":8080",
+		BinPath: "/usr/local/bin/okf",
 	}
 }
 
@@ -23,7 +23,7 @@ func TestSystemdUnitRendersExecStartWithBundleAndAddr(t *testing.T) {
 	if !strings.Contains(unit, "[Unit]") || !strings.Contains(unit, "[Service]") || !strings.Contains(unit, "[Install]") {
 		t.Fatalf("SystemdUnit() missing standard sections:\n%s", unit)
 	}
-	wantExec := "ExecStart=/usr/local/bin/okf mcp --bundle /home/sam/project/.okf --addr :8080"
+	wantExec := "ExecStart=/usr/local/bin/okf mcp --bundle project=/home/sam/project/.okf --addr :8080"
 	if !strings.Contains(unit, wantExec) {
 		t.Errorf("SystemdUnit() = %q, want ExecStart %q", unit, wantExec)
 	}
@@ -32,6 +32,24 @@ func TestSystemdUnitRendersExecStartWithBundleAndAddr(t *testing.T) {
 	}
 	if !strings.Contains(unit, "WantedBy=default.target") {
 		t.Errorf("SystemdUnit() missing WantedBy=default.target:\n%s", unit)
+	}
+}
+
+func TestSystemdUnitRendersMultipleBundlesSortedByName(t *testing.T) {
+	t.Parallel()
+
+	cfg := ServiceConfig{
+		Bundles: map[string]string{
+			"tau":         "/work/apps/tau/.okf",
+			"archie-core": "/work/apps/archie-core/.okf",
+		},
+		Addr:    ":8765",
+		BinPath: "/usr/local/bin/okf",
+	}
+	unit := SystemdUnit(cfg)
+	want := "ExecStart=/usr/local/bin/okf mcp --bundle archie-core=/work/apps/archie-core/.okf --bundle tau=/work/apps/tau/.okf --addr :8765"
+	if !strings.Contains(unit, want) {
+		t.Errorf("SystemdUnit() = %q, want ExecStart %q", unit, want)
 	}
 }
 
@@ -46,7 +64,7 @@ func TestLaunchdPlistRendersProgramArguments(t *testing.T) {
 		"<string>/usr/local/bin/okf</string>",
 		"<string>mcp</string>",
 		"<string>--bundle</string>",
-		"<string>/home/sam/project/.okf</string>",
+		"<string>project=/home/sam/project/.okf</string>",
 		"<string>--addr</string>",
 		"<string>:8080</string>",
 		"<key>RunAtLoad</key>",

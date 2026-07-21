@@ -176,7 +176,7 @@ func TestRunMCPInstallDryRunWritesServiceFileWithoutEnabling(t *testing.T) {
 	bundle := t.TempDir()
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"mcp", "install", "--bundle", bundle, "--addr", ":9191", "--dry-run"}, &stdout, &stderr)
+	code := run([]string{"mcp", "install", "--bundle", "proj=" + bundle, "--addr", ":9191", "--dry-run"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run(mcp install) = %d, stderr = %q", code, stderr.String())
 	}
@@ -189,11 +189,51 @@ func TestRunMCPInstallDryRunWritesServiceFileWithoutEnabling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service unit not written at %q: %v", unitPath, err)
 	}
-	if !strings.Contains(string(data), "--bundle "+bundle) || !strings.Contains(string(data), "--addr :9191") {
+	if !strings.Contains(string(data), "--bundle proj="+bundle) || !strings.Contains(string(data), "--addr :9191") {
 		t.Errorf("service unit content = %q, want bundle/addr flags baked in", data)
 	}
 	if !strings.Contains(stderr.String(), unitPath) {
 		t.Errorf("stderr = %q, want it to mention the written path", stderr.String())
+	}
+}
+
+func TestRunMCPInstallSupportsMultipleNamedBundles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"mcp", "install",
+		"--bundle", "tau=" + t.TempDir(),
+		"--bundle", "archie-core=" + t.TempDir(),
+		"--dry-run",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(mcp install) = %d, stderr = %q", code, stderr.String())
+	}
+
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "okf-mcp.service")
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		t.Fatalf("service unit not written at %q: %v", unitPath, err)
+	}
+	if !strings.Contains(string(data), "--bundle tau=") || !strings.Contains(string(data), "--bundle archie-core=") {
+		t.Errorf("service unit content = %q, want both bundles baked in", data)
+	}
+}
+
+func TestRunMCPInstallRejectsMissingOrMalformedBundle(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"mcp", "install", "--dry-run"}, &stdout, &stderr); code != 2 {
+		t.Errorf("run(mcp install) with no --bundle = %d, want 2; stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"mcp", "install", "--bundle", "no-equals-sign", "--dry-run"}, &stdout, &stderr); code != 2 {
+		t.Errorf("run(mcp install) with malformed --bundle = %d, want 2; stderr = %q", code, stderr.String())
 	}
 }
 
@@ -215,7 +255,7 @@ func TestRunMCPStatusReportsInstalledAfterDryRunInstall(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	var installOut, installErr bytes.Buffer
-	if code := run([]string{"mcp", "install", "--bundle", t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
+	if code := run([]string{"mcp", "install", "--bundle", "proj=" + t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
 		t.Fatalf("run(mcp install) = %d, stderr = %q", code, installErr.String())
 	}
 
@@ -239,7 +279,7 @@ func TestRunMCPUninstallDryRunRemovesServiceFile(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	var installOut, installErr bytes.Buffer
-	if code := run([]string{"mcp", "install", "--bundle", t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
+	if code := run([]string{"mcp", "install", "--bundle", "proj=" + t.TempDir(), "--dry-run"}, &installOut, &installErr); code != 0 {
 		t.Fatalf("run(mcp install) = %d, stderr = %q", code, installErr.String())
 	}
 	unitPath := filepath.Join(home, ".config", "systemd", "user", "okf-mcp.service")

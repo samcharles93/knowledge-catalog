@@ -1,6 +1,8 @@
 package okf
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +156,28 @@ func TestMCPRememberPropagatesValidationError(t *testing.T) {
 	_, err := MCPRemember(root, RememberInput{Type: "Codebase", Title: "should fail", Body: "x"})
 	if err == nil {
 		t.Fatal("MCPRemember() with a reserved type should have errored")
+	}
+}
+
+func TestNewMultiBundleServerRoutesByName(t *testing.T) {
+	t.Parallel()
+
+	mux := NewMultiBundleServer(map[string]string{
+		"tau":         t.TempDir(),
+		"archie-core": t.TempDir(),
+	})
+	for _, name := range []string{"tau", "archie-core"} {
+		req := httptest.NewRequest(http.MethodGet, "/"+name+"/", nil)
+		h, pattern := mux.Handler(req)
+		if h == nil || pattern == "" {
+			t.Errorf("no handler matched for /%s/, pattern = %q", name, pattern)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/unregistered/", nil)
+	_, pattern := mux.Handler(req)
+	if pattern != "" {
+		t.Errorf("unexpected route match for an unregistered bundle name: pattern = %q", pattern)
 	}
 }
 
