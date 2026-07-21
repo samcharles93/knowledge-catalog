@@ -55,6 +55,37 @@ func TestExportBundlePrunesStaleFilesWithinOwnedPrefixes(t *testing.T) {
 	}
 }
 
+// TestExportBundlePruneDoesNotTouchUnrelatedEmptyDirectories guards against
+// a real regression: pruning must be scoped to prunePrefixes' own
+// namespace directories, not swept across the whole bundle. okf init
+// scaffolds empty "rules" and "services" directories that have nothing to
+// do with a codebase harvest -- they must survive untouched even though
+// they're empty, because directory-emptiness alone isn't the signal for
+// "prunable"; ownership is.
+func TestExportBundlePruneDoesNotTouchUnrelatedEmptyDirectories(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(out, "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(out, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	concepts := map[string]Document{"codebase/a": newDoc("a")}
+	if _, err := exportBundle(out, func() (map[string]Document, error) { return concepts, nil }, []string{"codebase"}); err != nil {
+		t.Fatalf("exportBundle() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(out, "rules")); err != nil {
+		t.Errorf("empty rules/ directory outside the owned prefix should survive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "services")); err != nil {
+		t.Errorf("empty services/ directory outside the owned prefix should survive: %v", err)
+	}
+}
+
 // TestExportBundleNoPruningWhenPrefixesNil covers extractors like
 // WebExtractor that are intentionally additive across runs: passing a nil
 // prunePrefixes must leave pre-existing files untouched, however unrelated
