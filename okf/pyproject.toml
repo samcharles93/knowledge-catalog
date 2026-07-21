@@ -3,29 +3,29 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "reference-agent"
-version = "0.1.0"
-description = "Reference agent that produces Open Knowledge Format bundles"
+name = "okf"
+version = "1.0.0"
+description = "Open Knowledge Format (OKF) standard library, CLI, extractors, and MCP server"
 requires-python = ">=3.11"
 dependencies = [
-    "google-adk>=2.0",
-    "google-cloud-bigquery>=3.20",
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "markdownify>=0.11",
+    "jinja2>=3.0",
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-reference-agent = "reference_agent.cli:main"
+okf = "okf.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-reference_agent = ["prompts/*.md", "viewer/templates/*.html", "viewer/static/*"]
+okf = ["viewer/templates/*.html", "viewer/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

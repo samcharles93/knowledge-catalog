@@ -1,0 +1,14 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash \"$CLAUDE_PROJECT_DIR\"/agent-adapters/claude-code/hooks/okf-session-context.sh",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}
