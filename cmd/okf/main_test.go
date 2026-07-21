@@ -116,6 +116,18 @@ func TestRunVisualizeWritesHTML(t *testing.T) {
 	}
 }
 
+func TestRunVersionPrintsBuildInfo(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run(version) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "okf") {
+		t.Errorf("stdout = %q, want version output", stdout.String())
+	}
+}
+
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
 

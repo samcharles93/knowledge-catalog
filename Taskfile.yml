@@ -1,0 +1,54 @@
+version: "3"
+
+vars:
+  BIN_DIR: bin
+  BINARY: "{{.BIN_DIR}}/okf"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  check:
+    desc: Format-check, vet, lint, and test the whole module
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "gofmt needs to be run on:"
+          echo "$unformatted"
+          exit 1
+        fi
+      - go vet ./...
+      - golangci-lint run ./...
+      - go test ./...
+
+  build:
+    desc: Build the okf binary for the current platform
+    deps: [check]
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BINARY}}"
+    cmds:
+      - go build -o {{.BINARY}} ./cmd/okf
+
+  release:snapshot:
+    desc: Build a local snapshot release with GoReleaser (no publish, no git tag required)
+    deps: [check]
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release:
+    desc: Cut and publish a real release with GoReleaser (requires a git tag and GITHUB_TOKEN)
+    deps: [check]
+    cmds:
+      - goreleaser release --clean
+
+  clean:
+    desc: Remove build and release artifacts
+    cmds:
+      - rm -rf {{.BIN_DIR}} dist

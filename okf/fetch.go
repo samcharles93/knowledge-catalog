@@ -50,7 +50,7 @@ func FetchPage(rawURL string) (Page, error) {
 	if err != nil {
 		return Page{}, fmt.Errorf("fetch %s: %w", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(strings.ToLower(contentType), "html") {

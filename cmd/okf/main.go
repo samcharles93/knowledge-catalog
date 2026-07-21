@@ -13,18 +13,27 @@ import (
 	"github.com/samcharles93/knowledge-catalog/okf"
 )
 
+// version, commit, and date are set via -ldflags at build time (see
+// .goreleaser.yaml); they default to "dev"/"none"/"unknown" for `go build`
+// and `go run` during development.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = "usage: okf <init|validate|harvest|context|visualize|mcp> [flags]"
+const usage = "usage: okf <init|validate|harvest|context|visualize|mcp|version> [flags]"
 
 // run executes a single CLI invocation and returns the process exit code:
 // 0 on success, 1 when a validation-type command reports failure, 2 for
 // usage errors (unknown command or bad flags).
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 
@@ -41,8 +50,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVisualize(args[1:], stderr)
 	case "mcp":
 		return runMCP(args[1:], stderr)
+	case "version":
+		_, _ = fmt.Fprintf(stdout, "okf %s (commit %s, built %s)\n", version, commit, date)
+		return 0
 	default:
-		fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 }
@@ -62,10 +74,10 @@ func runInit(args []string, stderr io.Writer) int {
 
 	abs, err := initBundle(*path)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stderr, "Initialized OKF Knowledge Bundle at: %s\n", abs)
+	_, _ = fmt.Fprintf(stderr, "Initialized OKF Knowledge Bundle at: %s\n", abs)
 	return 0
 }
 
@@ -121,19 +133,19 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	report := okf.ValidateBundle(*bundle)
-	fmt.Fprintf(stdout, "Validation Report for %s:\n", *bundle)
-	fmt.Fprintf(stdout, "- Total Concepts: %d\n", report.TotalConcepts)
-	fmt.Fprintf(stdout, "- Valid: %t\n", report.Valid())
+	_, _ = fmt.Fprintf(stdout, "Validation Report for %s:\n", *bundle)
+	_, _ = fmt.Fprintf(stdout, "- Total Concepts: %d\n", report.TotalConcepts)
+	_, _ = fmt.Fprintf(stdout, "- Valid: %t\n", report.Valid())
 	if len(report.Errors) > 0 {
-		fmt.Fprintln(stdout, "\nErrors:")
+		_, _ = fmt.Fprintln(stdout, "\nErrors:")
 		for _, e := range report.Errors {
-			fmt.Fprintf(stdout, "  [%s] %s\n", e.ConceptID, e.Message)
+			_, _ = fmt.Fprintf(stdout, "  [%s] %s\n", e.ConceptID, e.Message)
 		}
 	}
 	if len(report.Warnings) > 0 {
-		fmt.Fprintln(stdout, "\nWarnings:")
+		_, _ = fmt.Fprintln(stdout, "\nWarnings:")
 		for _, w := range report.Warnings {
-			fmt.Fprintf(stdout, "  [%s] %s\n", w.ConceptID, w.Message)
+			_, _ = fmt.Fprintf(stdout, "  [%s] %s\n", w.ConceptID, w.Message)
 		}
 	}
 
@@ -179,16 +191,16 @@ func runHarvest(args []string, stderr io.Writer) int {
 	case "web":
 		extractor = okf.WebExtractor{URLs: urls}
 	default:
-		fmt.Fprintf(stderr, "unknown harvest type %q; want codebase, openapi, sql, or web\n", *typ)
+		_, _ = fmt.Fprintf(stderr, "unknown harvest type %q; want codebase, openapi, sql, or web\n", *typ)
 		return 2
 	}
 
 	n, err := extractor.ExportBundle(*out)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stderr, "Harvested %d concepts into %s\n", n, *out)
+	_, _ = fmt.Fprintf(stderr, "Harvested %d concepts into %s\n", n, *out)
 	return 0
 }
 
@@ -208,10 +220,10 @@ func runContext(args []string, stdout, stderr io.Writer) int {
 		text, err = okf.SummaryContext(*bundle)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintln(stdout, text)
+	_, _ = fmt.Fprintln(stdout, text)
 	return 0
 }
 
@@ -230,10 +242,10 @@ func runVisualize(args []string, stderr io.Writer) int {
 	}
 	stats, err := okf.GenerateVisualization(*bundle, outPath, *name)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stderr, "Wrote %d concept(s), %d edge(s) -> %s\n", stats.Concepts, stats.Edges, outPath)
+	_, _ = fmt.Fprintf(stderr, "Wrote %d concept(s), %d edge(s) -> %s\n", stats.Concepts, stats.Edges, outPath)
 	return 0
 }
 
@@ -246,9 +258,9 @@ func runMCP(args []string, stderr io.Writer) int {
 	}
 
 	srv := okf.NewMCPServer(*bundle)
-	fmt.Fprintf(stderr, "Serving OKF MCP server for %s on http://%s\n", *bundle, *addr)
+	_, _ = fmt.Fprintf(stderr, "Serving OKF MCP server for %s on http://%s\n", *bundle, *addr)
 	if err := http.ListenAndServe(*addr, srv); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
