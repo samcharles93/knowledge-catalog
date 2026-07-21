@@ -43,7 +43,7 @@ func TestRunValidateUsesExitStatusForValidity(t *testing.T) {
 	if code := run([]string{"validate", "--bundle", bundle}, &stdout, &stderr); code != 1 {
 		t.Fatalf("run(validate) = %d, want 1; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Valid: false") || !strings.Contains(stdout.String(), "Missing required frontmatter keys: type") {
+	if !strings.Contains(stdout.String(), "Valid: false") || !strings.Contains(stdout.String(), "missing required frontmatter keys: type") {
 		t.Errorf("stdout = %q", stdout.String())
 	}
 }
