@@ -4,7 +4,7 @@ resource: cmd/okf/main.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:36:27Z"
+timestamp: "2026-07-21T17:53:05Z"
 title: main.go
 type: Module
 ---

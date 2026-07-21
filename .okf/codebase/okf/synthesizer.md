@@ -4,7 +4,7 @@ resource: okf/synthesizer.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:36:27Z"
+timestamp: "2026-07-21T17:53:05Z"
 title: synthesizer.go
 type: Module
 ---

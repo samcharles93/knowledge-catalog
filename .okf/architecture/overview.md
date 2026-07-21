@@ -5,7 +5,7 @@ tags:
     - overview
     - architecture
     - codebase
-timestamp: "2026-07-21T17:36:27Z"
+timestamp: "2026-07-21T17:53:05Z"
 title: knowledge-catalog Overview
 type: Architecture
 ---
@@ -169,6 +169,7 @@ Distributed under the [Apache 2.0 License](LICENSE.md).
 * [extract_openapi_test.go](/codebase/okf/extract_openapi_test.md) - `okf/extract_openapi_test.go`
 * [extract_sql.go](/codebase/okf/extract_sql.md) - `okf/extract_sql.go`
 * [extract_sql_test.go](/codebase/okf/extract_sql_test.md) - `okf/extract_sql_test.go`
+* [extract_test.go](/codebase/okf/extract_test.md) - `okf/extract_test.go`
 * [extract_web.go](/codebase/okf/extract_web.md) - `okf/extract_web.go`
 * [extract_web_test.go](/codebase/okf/extract_web_test.md) - `okf/extract_web_test.go`
 * [fetch.go](/codebase/okf/fetch.md) - `okf/fetch.go`

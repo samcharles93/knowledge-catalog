@@ -1,10 +1,10 @@
 ---
-description: Source module okf/extract_sql.go (89 lines).
+description: Source module okf/extract_sql.go (92 lines).
 resource: okf/extract_sql.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:36:27Z"
+timestamp: "2026-07-21T17:53:05Z"
 title: extract_sql.go
 type: Module
 ---
@@ -12,7 +12,7 @@ type: Module
 # Module extract_sql.go
 
 **Path**: `okf/extract_sql.go`  
-**Lines**: 89
+**Lines**: 92
 
 ## Snippet Preview
 

@@ -1,10 +1,10 @@
 ---
-description: Source module okf/extract_web.go (74 lines).
+description: Source module okf/extract_web.go (77 lines).
 resource: okf/extract_web.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:36:27Z"
+timestamp: "2026-07-21T17:53:05Z"
 title: extract_web.go
 type: Module
 ---
@@ -12,7 +12,7 @@ type: Module
 # Module extract_web.go
 
 **Path**: `okf/extract_web.go`  
-**Lines**: 74
+**Lines**: 77
 
 ## Snippet Preview
 
