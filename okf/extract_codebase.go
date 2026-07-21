@@ -3,6 +3,7 @@ package okf
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -39,6 +40,29 @@ func isRepoRoot(root string) bool {
 	return err == nil
 }
 
+// gitTrackedFiles lists every file git considers part of root's working
+// tree -- both tracked and untracked-but-not-ignored -- as paths relative
+// to root, using git itself as the source of truth for .gitignore,
+// .git/info/exclude, and global-excludes semantics rather than
+// reimplementing gitignore pattern matching (which has enough edge cases
+// -- negation, directory anchoring, nested .gitignore files -- to get
+// subtly wrong). Returns ok=false if root isn't inside a usable git
+// working tree, so the caller can fall back to a plain directory walk.
+func gitTrackedFiles(root string) (paths []string, ok bool) {
+	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range splitLines(string(out)) {
+		if line != "" {
+			paths = append(paths, filepath.FromSlash(line))
+		}
+	}
+	return paths, true
+}
+
 func (e CodebaseExtractor) ExtractConcepts() (map[string]Document, error) {
 	root, err := filepath.Abs(e.ProjectRoot)
 	if err != nil {
@@ -52,23 +76,36 @@ func (e CodebaseExtractor) ExtractConcepts() (map[string]Document, error) {
 	}
 
 	var paths []string
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	if relPaths, ok := gitTrackedFiles(root); ok {
+		for _, rel := range relPaths {
+			full := filepath.Join(root, rel)
+			if codebaseSourceExtensions[filepath.Ext(full)] {
+				paths = append(paths, full)
+			}
 		}
-		if d.IsDir() {
-			if path != root && codebaseIgnoredDirs[d.Name()] {
-				return filepath.SkipDir
+	} else {
+		// Not a git working tree (or git isn't available): fall back to a
+		// plain walk with a small hardcoded ignore list. There's no
+		// .gitignore to consult here, so this is the best effort available
+		// for a non-git source drop.
+		err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != root && codebaseIgnoredDirs[d.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if codebaseSourceExtensions[filepath.Ext(path)] {
+				paths = append(paths, path)
 			}
 			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		if codebaseSourceExtensions[filepath.Ext(path)] {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	sort.Strings(paths)
 

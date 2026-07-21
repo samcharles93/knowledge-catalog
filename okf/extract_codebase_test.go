@@ -2,10 +2,35 @@ package okf
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// initRealGitRepo runs `git init` (and, if commit is true, adds and commits
+// every file currently in dir) so tests can exercise the git-ls-files-based
+// ignore path for real, rather than the markAsRepoRoot fake ".git" marker
+// (which only satisfies isRepoRoot's presence check and deliberately is
+// NOT a working repo, so gitTrackedFiles falls back to the plain walk).
+func initRealGitRepo(t *testing.T, dir string, commit bool) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	if commit {
+		run("add", "-A")
+		run("commit", "-q", "-m", "initial")
+	}
+}
 
 // markAsRepoRoot creates the ".git" marker CodebaseExtractor uses to decide
 // whether a harvested root is the whole-project root (and therefore owns
@@ -50,6 +75,113 @@ func TestCodebaseExtractorProducesOverviewAndModules(t *testing.T) {
 	}
 	if module.Frontmatter["type"] != "Module" {
 		t.Errorf("module type = %v, want Module", module.Frontmatter["type"])
+	}
+}
+
+// TestCodebaseExtractorSkipsGitignoredFiles is a security regression test:
+// a gitignored file sitting in the tree (e.g. a local secrets file) must
+// never be harvested and baked as plaintext into a committed concept
+// document.
+func TestCodebaseExtractorSkipsGitignoredFiles(t *testing.T) {
+	t.Parallel()
+
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, ".gitignore"), []byte("secret.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "secret.go"), []byte("package main\n\nconst APIKey = \"sk-should-never-leak\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initRealGitRepo(t, proj, true)
+
+	ext := CodebaseExtractor{ProjectRoot: proj}
+	concepts, err := ext.ExtractConcepts()
+	if err != nil {
+		t.Fatalf("ExtractConcepts() error = %v", err)
+	}
+	if _, ok := concepts["codebase/secret"]; ok {
+		t.Error("codebase/secret should not have been harvested: it's gitignored")
+	}
+	for id, doc := range concepts {
+		if strings.Contains(doc.Body, "sk-should-never-leak") {
+			t.Errorf("concept %q leaked gitignored secret content: %q", id, doc.Body)
+		}
+	}
+	if _, ok := concepts["codebase/main"]; !ok {
+		t.Error("missing codebase/main concept (the non-ignored file should still be harvested)")
+	}
+}
+
+// TestCodebaseExtractorSkipsGitignoredDirectories covers a whole
+// gitignored directory (e.g. an agent's scratch/worktree directory), not
+// just a single ignored file.
+func TestCodebaseExtractorSkipsGitignoredDirectories(t *testing.T) {
+	t.Parallel()
+
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, ".gitignore"), []byte(".scratch/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scratchDir := filepath.Join(proj, ".scratch", "nested")
+	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scratchDir, "leftover.go"), []byte("package scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initRealGitRepo(t, proj, true)
+
+	ext := CodebaseExtractor{ProjectRoot: proj}
+	concepts, err := ext.ExtractConcepts()
+	if err != nil {
+		t.Fatalf("ExtractConcepts() error = %v", err)
+	}
+	for id := range concepts {
+		if strings.Contains(id, "scratch") {
+			t.Errorf("concept %q from a gitignored directory should not have been harvested", id)
+		}
+	}
+	if _, ok := concepts["codebase/main"]; !ok {
+		t.Error("missing codebase/main concept")
+	}
+}
+
+// TestCodebaseExtractorGitScopesToSubtree covers harvesting a subtree
+// (-src ./internal, a documented, supported usage) of a larger git repo:
+// concept IDs must stay relative to the harvested subtree, matching the
+// non-git walk's existing behavior, not the repo root.
+func TestCodebaseExtractorGitScopesToSubtree(t *testing.T) {
+	t.Parallel()
+
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, "root.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(proj, "internal")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "lib.go"), []byte("package internal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initRealGitRepo(t, proj, true)
+
+	ext := CodebaseExtractor{ProjectRoot: sub}
+	concepts, err := ext.ExtractConcepts()
+	if err != nil {
+		t.Fatalf("ExtractConcepts() error = %v", err)
+	}
+	if _, ok := concepts["codebase/lib"]; !ok {
+		t.Errorf("missing codebase/lib concept, got %v", keysOf(concepts))
+	}
+	if _, ok := concepts["codebase/root"]; ok {
+		t.Error("codebase/root should not appear when harvesting the internal/ subtree only")
 	}
 }
 

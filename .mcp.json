@@ -2,7 +2,7 @@
   "mcpServers": {
     "okf": {
       "type": "http",
-      "url": "http://localhost:8765/"
+      "url": "http://localhost:8765/knowledge-catalog/"
     }
   }
 }
