@@ -310,6 +310,95 @@ func conceptMatchesQuery(f ConceptFile, lowerQuery string) bool {
 	return false
 }
 
+// linkGraph is the resolved directed edges between concepts, keyed by
+// concept ID, plus any links that didn't resolve to a known concept.
+// Shared by ValidateBundle (link-integrity/orphan checks) and Backlinks
+// (the "cited by" query) so link resolution is defined exactly once.
+type linkGraph struct {
+	outgoing map[string][]string
+	incoming map[string][]string
+	broken   []Issue
+}
+
+// buildLinkGraph resolves every markdown link in documents (relative to
+// each doc's directory, or bundle-root-relative for a leading "/") into
+// concept IDs. A link that doesn't resolve to any file in conceptFiles
+// (and isn't the reserved "index" target) is recorded as a broken-link
+// warning.
+func buildLinkGraph(root string, concepts []ConceptFile, conceptFiles map[string]string) linkGraph {
+	graph := linkGraph{outgoing: map[string][]string{}, incoming: map[string][]string{}}
+
+	for _, c := range concepts {
+		if c.Err != nil {
+			continue
+		}
+		var links []string
+		for _, m := range linkRE.FindAllStringSubmatch(c.Doc.Body, -1) {
+			target := strings.TrimSpace(m[2])
+			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") ||
+				strings.HasPrefix(target, "mailto:") || strings.HasPrefix(target, "#") {
+				continue
+			}
+
+			var targetClean string
+			if rest, ok := strings.CutPrefix(target, "/"); ok {
+				targetClean = strings.TrimSuffix(rest, ".md")
+			} else {
+				docDir := filepath.Dir(c.Path)
+				resolved := filepath.Clean(filepath.Join(docDir, target))
+				if rel, err := filepath.Rel(root, resolved); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					targetClean = strings.TrimSuffix(filepath.ToSlash(rel), ".md")
+				} else {
+					targetClean = target
+				}
+			}
+
+			links = append(links, targetClean)
+			graph.incoming[targetClean] = append(graph.incoming[targetClean], c.ID)
+
+			if _, ok := conceptFiles[targetClean]; !ok && targetClean != "index" {
+				graph.broken = append(graph.broken, Issue{
+					ConceptID: c.ID, Path: c.Path,
+					Message: fmt.Sprintf("Broken link target: '%s' (resolved as '%s')", target, targetClean),
+					Warning: true,
+				})
+			}
+		}
+		graph.outgoing[c.ID] = links
+	}
+
+	return graph
+}
+
+// Backlinks returns the IDs of every concept that links to conceptID,
+// sorted and deduplicated, resolved the same way ValidateBundle resolves
+// links. An unknown or uncited conceptID returns an empty slice, not an
+// error — SPEC.md §4.2 describes backlinks ("Cited By") as a graph query,
+// not a validity check.
+func Backlinks(root string, conceptID string) ([]string, error) {
+	concepts, err := walkConceptFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	conceptFiles := make(map[string]string, len(concepts))
+	for _, c := range concepts {
+		conceptFiles[c.ID] = c.Path
+	}
+
+	graph := buildLinkGraph(root, concepts, conceptFiles)
+
+	seen := map[string]bool{}
+	backlinks := make([]string, 0, len(graph.incoming[conceptID]))
+	for _, id := range graph.incoming[conceptID] {
+		if !seen[id] {
+			seen[id] = true
+			backlinks = append(backlinks, id)
+		}
+	}
+	sort.Strings(backlinks)
+	return backlinks, nil
+}
+
 // ValidateBundle walks a bundle root, parses every concept document,
 // checks required/recommended frontmatter, link integrity, and orphan
 // concepts, and returns the aggregated report.
@@ -337,7 +426,6 @@ func ValidateBundle(root string) Report {
 		conceptFiles[c.ID] = c.Path
 	}
 
-	documents := map[string]Document{}
 	for _, c := range concepts {
 		if c.Err != nil {
 			report.Errors = append(report.Errors, Issue{
@@ -369,50 +457,17 @@ func ValidateBundle(root string) Report {
 				ConceptID: c.ID, Path: c.Path, Message: w, Warning: true,
 			})
 		}
-		documents[c.ID] = c.Doc
 	}
 
-	outgoingLinks := map[string][]string{}
-	incomingLinks := map[string][]string{}
-	for conceptID, doc := range documents {
-		var links []string
-		for _, m := range linkRE.FindAllStringSubmatch(doc.Body, -1) {
-			target := strings.TrimSpace(m[2])
-			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") ||
-				strings.HasPrefix(target, "mailto:") || strings.HasPrefix(target, "#") {
-				continue
-			}
-
-			var targetClean string
-			if rest, ok := strings.CutPrefix(target, "/"); ok {
-				targetClean = strings.TrimSuffix(rest, ".md")
-			} else {
-				docDir := filepath.Dir(conceptFiles[conceptID])
-				resolved := filepath.Clean(filepath.Join(docDir, target))
-				if rel, err := filepath.Rel(root, resolved); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-					targetClean = strings.TrimSuffix(filepath.ToSlash(rel), ".md")
-				} else {
-					targetClean = target
-				}
-			}
-
-			links = append(links, targetClean)
-			incomingLinks[targetClean] = append(incomingLinks[targetClean], conceptID)
-
-			if _, ok := conceptFiles[targetClean]; !ok && targetClean != "index" {
-				report.Warnings = append(report.Warnings, Issue{
-					ConceptID: conceptID, Path: conceptFiles[conceptID],
-					Message: fmt.Sprintf("Broken link target: '%s' (resolved as '%s')", target, targetClean),
-					Warning: true,
-				})
-			}
-		}
-		outgoingLinks[conceptID] = links
-	}
+	// Link resolution covers every readable concept (not just ones that
+	// passed frontmatter validation) — a citation is still a citation even
+	// if the citing doc is missing its `type` field.
+	graph := buildLinkGraph(root, concepts, conceptFiles)
+	report.Warnings = append(report.Warnings, graph.broken...)
 
 	if report.TotalConcepts > 1 {
 		for conceptID, path := range conceptFiles {
-			if len(outgoingLinks[conceptID]) == 0 && len(incomingLinks[conceptID]) == 0 {
+			if len(graph.outgoing[conceptID]) == 0 && len(graph.incoming[conceptID]) == 0 {
 				report.Warnings = append(report.Warnings, Issue{
 					ConceptID: conceptID, Path: path,
 					Message: "Orphan concept: has no incoming or outgoing links in bundle graph",

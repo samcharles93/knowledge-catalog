@@ -3,6 +3,7 @@ package okf
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -166,6 +167,48 @@ func TestSearchConceptsEmptyQueryMatchesEverything(t *testing.T) {
 	}
 	if len(matches) != 1 {
 		t.Fatalf("SearchConcepts(\"\") = %d matches, want 1", len(matches))
+	}
+}
+
+func TestBacklinksReturnsSortedDedupedCiters(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := Document{Frontmatter: map[string]any{"type": "Service", "title": "Target"}, Body: "target body"}
+	a := Document{Frontmatter: map[string]any{"type": "Service", "title": "A"}, Body: "See [Target](target.md) and again [Target](target.md)."}
+	b := Document{Frontmatter: map[string]any{"type": "Service", "title": "B"}, Body: "Also see [Target](/target.md)."}
+	unrelated := Document{Frontmatter: map[string]any{"type": "Service", "title": "C"}, Body: "No links."}
+	for name, doc := range map[string]Document{"target.md": target, "a.md": a, "b.md": b, "c.md": unrelated} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(doc.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	backlinks, err := Backlinks(root, "target")
+	if err != nil {
+		t.Fatalf("Backlinks() error = %v", err)
+	}
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(backlinks, want) {
+		t.Errorf("Backlinks() = %v, want %v", backlinks, want)
+	}
+}
+
+func TestBacklinksReturnsEmptyForUncitedConcept(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	doc := Document{Frontmatter: map[string]any{"type": "Concept", "title": "Alone"}, Body: "body"}
+	if err := os.WriteFile(filepath.Join(root, "alone.md"), []byte(doc.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlinks, err := Backlinks(root, "alone")
+	if err != nil {
+		t.Fatalf("Backlinks() error = %v", err)
+	}
+	if len(backlinks) != 0 {
+		t.Errorf("Backlinks() = %v, want empty", backlinks)
 	}
 }
 

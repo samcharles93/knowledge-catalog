@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -35,25 +36,22 @@ func SummaryContext(root string) (string, error) {
 }
 
 // ConceptContext renders the full prompt-ready markdown for a single
-// concept, including a metadata header derived from its frontmatter.
+// concept, including a metadata header derived from its frontmatter. If
+// conceptID doesn't resolve to a file directly, it falls back to an exact,
+// case-sensitive match against a concept's `aliases` frontmatter list
+// (SPEC.md §3.1: "aliases ... Alternative lookup names").
 func ConceptContext(root string, conceptID string) (string, error) {
-	path := filepath.Join(root, strings.TrimLeft(conceptID, "/")+".md")
-	if _, err := os.Stat(path); err != nil {
+	concept, found, err := resolveConcept(root, conceptID)
+	if err != nil {
+		return "", err
+	}
+	if !found {
 		return fmt.Sprintf("Concept '%s' not found in bundle.", conceptID), nil
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	doc, err := ParseDocument(string(data))
-	if err != nil {
-		return "", err
-	}
-
-	fm := doc.Frontmatter
+	fm := concept.Doc.Frontmatter
 	lines := []string{
-		fmt.Sprintf("# Concept: %s", stringFrontmatterOr(fm["title"], conceptID)),
+		fmt.Sprintf("# Concept: %s", stringFrontmatterOr(fm["title"], concept.ID)),
 		fmt.Sprintf("- **Type**: %s", stringFrontmatterOr(fm["type"], "Unknown")),
 		fmt.Sprintf("- **Description**: %s", stringFrontmatterOr(fm["description"], "N/A")),
 	}
@@ -63,8 +61,46 @@ func ConceptContext(root string, conceptID string) (string, error) {
 	if tags := frontmatterStringSlice(fm["tags"]); len(tags) > 0 {
 		lines = append(lines, fmt.Sprintf("- **Tags**: %s", strings.Join(tags, ", ")))
 	}
+	if backlinks, err := Backlinks(root, concept.ID); err == nil && len(backlinks) > 0 {
+		cited := make([]string, len(backlinks))
+		for i, id := range backlinks {
+			cited[i] = "`" + id + "`"
+		}
+		lines = append(lines, fmt.Sprintf("- **Cited by**: %s", strings.Join(cited, ", ")))
+	}
 
-	return strings.Join(lines, "\n") + "\n\n" + doc.Body, nil
+	return strings.Join(lines, "\n") + "\n\n" + concept.Doc.Body, nil
+}
+
+// resolveConcept finds a concept by ID, trying the literal ID as a file
+// path first. If no file exists there, it scans the bundle for a concept
+// whose `aliases` frontmatter list contains conceptID as an exact,
+// case-sensitive match. The bool return reports whether a concept was
+// found at all.
+func resolveConcept(root string, conceptID string) (ConceptFile, bool, error) {
+	path := filepath.Join(root, strings.TrimLeft(conceptID, "/")+".md")
+	if _, err := os.Stat(path); err == nil {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return ConceptFile{}, false, err
+		}
+		doc, err := ParseDocument(string(data))
+		if err != nil {
+			return ConceptFile{}, false, err
+		}
+		return ConceptFile{ID: strings.TrimLeft(conceptID, "/"), Path: path, Doc: doc}, true, nil
+	}
+
+	concepts, err := walkConceptFiles(root)
+	if err != nil {
+		return ConceptFile{}, false, err
+	}
+	for _, c := range concepts {
+		if c.Err == nil && slices.Contains(frontmatterStringSlice(c.Doc.Frontmatter["aliases"]), conceptID) {
+			return c, true, nil
+		}
+	}
+	return ConceptFile{}, false, nil
 }
 
 // frontmatterStringSlice extracts a []string from a frontmatter value,
