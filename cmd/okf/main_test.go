@@ -228,6 +228,64 @@ func TestRunMCPUninstallReportsWhenNothingInstalled(t *testing.T) {
 	}
 }
 
+func TestRunSearchListsMatchingConcepts(t *testing.T) {
+	t.Parallel()
+
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, "auth.md"), []byte("---\ntype: Concept\ntitle: Auth Service\n---\nHandles authentication.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "billing.md"), []byte("---\ntype: Concept\ntitle: Billing Service\n---\nHandles invoices.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"search", "--bundle", bundle, "auth"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(search) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "auth") {
+		t.Errorf("stdout = %q, want it to mention the matching concept id", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Auth Service") {
+		t.Errorf("stdout = %q, want it to mention the matching concept title", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Billing Service") {
+		t.Errorf("stdout = %q, want non-matching concepts excluded", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "1 concept") {
+		t.Errorf("stdout = %q, want a match count summary", stdout.String())
+	}
+}
+
+func TestRunSearchReportsNoMatches(t *testing.T) {
+	t.Parallel()
+
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, "billing.md"), []byte("---\ntype: Concept\ntitle: Billing Service\n---\nHandles invoices.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"search", "--bundle", bundle, "nonexistent"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(search) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "0 concept") {
+		t.Errorf("stdout = %q, want a 0-match summary", stdout.String())
+	}
+}
+
+func TestRunSearchRequiresQuery(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"search", "--bundle", t.TempDir()}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run(search, no query) = %d, want 2; stderr = %q", code, stderr.String())
+	}
+}
+
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
 

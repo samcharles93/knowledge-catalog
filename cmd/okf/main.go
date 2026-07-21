@@ -28,7 +28,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = "usage: okf <init|validate|harvest|context|visualize|mcp|version> [flags]"
+const usage = "usage: okf <init|validate|harvest|context|search|visualize|mcp|version> [flags]"
 
 // run executes a single CLI invocation and returns the process exit code:
 // 0 on success, 1 when a validation-type command reports failure, 2 for
@@ -48,6 +48,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runHarvest(args[1:], stderr)
 	case "context":
 		return runContext(args[1:], stdout, stderr)
+	case "search":
+		return runSearch(args[1:], stdout, stderr)
 	case "visualize":
 		return runVisualize(args[1:], stderr)
 	case "mcp":
@@ -226,6 +228,35 @@ func runContext(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	_, _ = fmt.Fprintln(stdout, text)
+	return 0
+}
+
+func runSearch(args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("search", stderr)
+	bundle := fs.String("bundle", ".okf", "Path to bundle root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		_, _ = fmt.Fprintln(stderr, "usage: okf search --bundle <path> <query>")
+		return 2
+	}
+	query := fs.Arg(0)
+
+	matches, err := okf.SearchConcepts(*bundle, query)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	_, _ = fmt.Fprintf(stdout, "Found %d concept(s) matching %q:\n", len(matches), query)
+	for _, m := range matches {
+		title := m.ID
+		if t, ok := m.Doc.Frontmatter["title"].(string); ok && t != "" {
+			title = t
+		}
+		_, _ = fmt.Fprintf(stdout, "  %s - %s\n", m.ID, title)
+	}
 	return 0
 }
 
