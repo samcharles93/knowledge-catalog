@@ -68,6 +68,55 @@ func TestMCPGetConceptDelegatesToConceptContext(t *testing.T) {
 	}
 }
 
+func TestMCPSearchConceptsFormatsMatches(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	match := Document{
+		Frontmatter: map[string]any{"type": "Service", "title": "Auth Service", "description": "Handles login."},
+		Body:        "body",
+	}
+	noMatch := Document{
+		Frontmatter: map[string]any{"type": "Concept", "title": "Unrelated", "description": "Nothing to do with it."},
+		Body:        "body",
+	}
+	if err := os.WriteFile(filepath.Join(root, "auth.md"), []byte(match.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "unrelated.md"), []byte(noMatch.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := MCPSearchConcepts(root, "auth")
+	if err != nil {
+		t.Fatalf("MCPSearchConcepts() error = %v", err)
+	}
+	if !strings.Contains(out, "`auth`") || !strings.Contains(out, "Auth Service") {
+		t.Errorf("MCPSearchConcepts() = %q", out)
+	}
+	if strings.Contains(out, "Unrelated") {
+		t.Errorf("MCPSearchConcepts() should not match unrelated concept, got %q", out)
+	}
+}
+
+func TestMCPSearchConceptsHandlesNoMatches(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	doc := Document{Frontmatter: map[string]any{"type": "Concept", "title": "Something"}, Body: "body"}
+	if err := os.WriteFile(filepath.Join(root, "one.md"), []byte(doc.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := MCPSearchConcepts(root, "no-such-term")
+	if err != nil {
+		t.Fatalf("MCPSearchConcepts() error = %v", err)
+	}
+	if out != "No matching concepts found." {
+		t.Errorf("MCPSearchConcepts() = %q, want %q", out, "No matching concepts found.")
+	}
+}
+
 func TestMCPValidateBundleSummarizesReport(t *testing.T) {
 	t.Parallel()
 

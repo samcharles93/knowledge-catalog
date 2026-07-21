@@ -1,12 +1,14 @@
 package okf
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const indexFileName = "index.md"
@@ -19,11 +21,13 @@ var reservedConceptFileNames = map[string]bool{
 var linkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
 // ConceptFile is one discovered concept document: its ID, on-disk path,
-// and parsed contents. Err is set instead of Doc when the file could not
-// be read (ParseDocument itself is self-healing and never fails).
+// raw bytes, and parsed contents. Err is set instead of Doc/Raw when the
+// file could not be read (ParseDocument itself is self-healing and never
+// fails).
 type ConceptFile struct {
 	ID   string
 	Path string
+	Raw  []byte
 	Doc  Document
 	Err  error
 }
@@ -65,7 +69,7 @@ func walkConceptFiles(root string) ([]ConceptFile, error) {
 			files = append(files, ConceptFile{ID: conceptID, Path: path, Err: err})
 			continue
 		}
-		files = append(files, ConceptFile{ID: conceptID, Path: path, Doc: doc})
+		files = append(files, ConceptFile{ID: conceptID, Path: path, Raw: data, Doc: doc})
 	}
 	return files, nil
 }
@@ -265,6 +269,47 @@ func buildIndexText(entries []indexRow) string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
+// SearchConcepts returns every concept in the bundle whose title, body, or
+// tags contain query as a case-insensitive substring. An empty query
+// matches every concept. Per SPEC.md §6.2 (okf_search_concepts): "Semantic/
+// text search across tags, titles, and bodies" — this implements the text
+// half; semantic (embedding-based) search is out of scope.
+func SearchConcepts(root string, query string) ([]ConceptFile, error) {
+	files, err := walkConceptFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	lowerQuery := strings.ToLower(query)
+
+	matches := make([]ConceptFile, 0, len(files))
+	for _, f := range files {
+		if f.Err == nil && conceptMatchesQuery(f, lowerQuery) {
+			matches = append(matches, f)
+		}
+	}
+	return matches, nil
+}
+
+func conceptMatchesQuery(f ConceptFile, lowerQuery string) bool {
+	if lowerQuery == "" {
+		return true
+	}
+	fm := f.Doc.Frontmatter
+	title := stringFrontmatterOr(fm["title"], f.ID)
+	if strings.Contains(strings.ToLower(title), lowerQuery) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(f.Doc.Body), lowerQuery) {
+		return true
+	}
+	for _, tag := range frontmatterStringSlice(fm["tags"]) {
+		if strings.Contains(strings.ToLower(tag), lowerQuery) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateBundle walks a bundle root, parses every concept document,
 // checks required/recommended frontmatter, link integrity, and orphan
 // concepts, and returns the aggregated report.
@@ -300,6 +345,18 @@ func ValidateBundle(root string) Report {
 				Message: fmt.Sprintf("Failed to read/parse document: %v", c.Err),
 			})
 			continue
+		}
+		if !utf8.Valid(c.Raw) {
+			report.Errors = append(report.Errors, Issue{
+				ConceptID: c.ID, Path: c.Path, Message: "File is not valid UTF-8",
+			})
+			continue
+		}
+		if bytes.ContainsRune(c.Raw, '\r') {
+			report.Warnings = append(report.Warnings, Issue{
+				ConceptID: c.ID, Path: c.Path,
+				Message: "File does not use Unix (\\n) line endings", Warning: true,
+			})
 		}
 		if err := c.Doc.Validate(); err != nil {
 			report.Errors = append(report.Errors, Issue{

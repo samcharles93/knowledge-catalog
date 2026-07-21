@@ -67,11 +67,34 @@ func MCPValidateBundle(bundleRoot string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+// MCPSearchConcepts renders a one-line-per-match listing of concepts whose
+// title, body, or tags contain query (case-insensitive substring match).
+func MCPSearchConcepts(bundleRoot string, query string) (string, error) {
+	matches, err := SearchConcepts(bundleRoot, query)
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "No matching concepts found.", nil
+	}
+
+	lines := make([]string, 0, len(matches))
+	for _, f := range matches {
+		fm := f.Doc.Frontmatter
+		typ := stringFrontmatterOr(fm["type"], "Concept")
+		title := stringFrontmatterOr(fm["title"], f.ID)
+		desc := stringFrontmatterOr(fm["description"], "")
+		lines = append(lines, fmt.Sprintf("- `%s` [%s]: %s - %s", f.ID, typ, title, desc))
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
 // MCPServer exposes an OKF bundle over the MCP Streamable HTTP transport,
 // via the official github.com/modelcontextprotocol/go-sdk — no stdio
-// transport is supported. It serves both the four okf_* tools and, as MCP
-// resources, every concept document in the bundle so hosts can browse them
-// directly rather than only reaching them through a tool call.
+// transport is supported. It serves the five okf_* tools defined by
+// SPEC.md §6.2, and, as MCP resources, every concept document in the
+// bundle so hosts can browse them directly rather than only reaching them
+// through a tool call.
 type MCPServer struct {
 	BundleRoot string
 	handler    *sdk.StreamableHTTPHandler
@@ -99,6 +122,10 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type getConceptArgs struct {
 	ConceptID string `json:"concept_id" jsonschema:"Concept ID relative to bundle root"`
+}
+
+type searchConceptsArgs struct {
+	Query string `json:"query" jsonschema:"Case-insensitive substring to search for across concept tags, titles, and bodies"`
 }
 
 func newBundleServer(bundleRoot string) *sdk.Server {
@@ -138,10 +165,21 @@ func newBundleServer(bundleRoot string) *sdk.Server {
 	})
 
 	sdk.AddTool(server, &sdk.Tool{
-		Name:        "okf_validate_bundle",
+		Name:        "okf_validate",
 		Description: "Validate OKF bundle for structural integrity, frontmatter schema compliance, and link health.",
 	}, func(_ context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
 		text, err := MCPValidateBundle(bundleRoot)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(text), nil, nil
+	})
+
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "okf_search_concepts",
+		Description: "Search concepts by a case-insensitive substring across tags, titles, and bodies.",
+	}, func(_ context.Context, _ *sdk.CallToolRequest, args searchConceptsArgs) (*sdk.CallToolResult, any, error) {
+		text, err := MCPSearchConcepts(bundleRoot, args.Query)
 		if err != nil {
 			return nil, nil, err
 		}
