@@ -28,7 +28,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = "usage: okf <init|validate|harvest|context|search|visualize|mcp|version> [flags]"
+const usage = "usage: okf <init|validate|harvest|remember|context|search|visualize|mcp|version> [flags]"
 
 // run executes a single CLI invocation and returns the process exit code:
 // 0 on success, 1 when a validation-type command reports failure, 2 for
@@ -46,6 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runValidate(args[1:], stdout, stderr)
 	case "harvest":
 		return runHarvest(args[1:], stderr)
+	case "remember":
+		return runRemember(args[1:], stderr)
 	case "context":
 		return runContext(args[1:], stdout, stderr)
 	case "search":
@@ -205,6 +207,50 @@ func runHarvest(args []string, stderr io.Writer) int {
 		return 1
 	}
 	_, _ = fmt.Fprintf(stderr, "Harvested %d concepts into %s\n", n, *out)
+	return 0
+}
+
+// runRemember writes a single hand-authored (or agent-authored) concept
+// document into the bundle -- the "capture" path alongside harvest's
+// mechanical extraction. If --body is omitted, the body is read from
+// stdin instead.
+func runRemember(args []string, stderr io.Writer) int {
+	fs := newFlagSet("remember", stderr)
+	typ := fs.String("type", "", "Concept type: Rule, Runbook, Concept, Service, Architecture, or custom (required)")
+	title := fs.String("title", "", "Short title for the memory (required)")
+	body := fs.String("body", "", "Markdown body; if omitted, read from stdin")
+	desc := fs.String("description", "", "Optional one-line description")
+	resource := fs.String("resource", "", "Optional file path, PR link, or session reference")
+	out := fs.String("out", ".okf", "Output bundle root directory")
+	var tags stringSliceFlag
+	fs.Var(&tags, "tag", "Tag (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *typ == "" || *title == "" {
+		_, _ = fmt.Fprintln(stderr, "remember: -type and -title are required")
+		return 2
+	}
+
+	b := *body
+	if b == "" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		b = string(data)
+	}
+
+	conceptID, err := okf.Remember(*out, okf.RememberInput{
+		Type: *typ, Title: *title, Body: b,
+		Description: *desc, Resource: *resource, Tags: tags,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stderr, "Remembered %s into %s\n", conceptID, *out)
 	return 0
 }
 

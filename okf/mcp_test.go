@@ -117,6 +117,46 @@ func TestMCPSearchConceptsHandlesNoMatches(t *testing.T) {
 	}
 }
 
+func TestMCPRememberWritesConceptAndReturnsConfirmation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	out, err := MCPRemember(root, RememberInput{
+		Type:  "Rule",
+		Title: "Always run golangci-lint",
+		Body:  "Run golangci-lint before every Go commit.",
+	})
+	if err != nil {
+		t.Fatalf("MCPRemember() error = %v", err)
+	}
+	if !strings.Contains(out, "rules/Always_run_golangci_lint") || !strings.Contains(out, "Rule") ||
+		!strings.Contains(out, "Run golangci-lint before every Go commit.") {
+		t.Errorf("MCPRemember() = %q", out)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "rules", "Always_run_golangci_lint.md"))
+	if err != nil {
+		t.Fatalf("concept file not written: %v", err)
+	}
+	doc, err := ParseDocument(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Frontmatter["type"] != "Rule" {
+		t.Errorf("type = %v, want Rule", doc.Frontmatter["type"])
+	}
+}
+
+func TestMCPRememberPropagatesValidationError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	_, err := MCPRemember(root, RememberInput{Type: "Codebase", Title: "should fail", Body: "x"})
+	if err == nil {
+		t.Fatal("MCPRemember() with a reserved type should have errored")
+	}
+}
+
 func TestMCPValidateBundleSummarizesReport(t *testing.T) {
 	t.Parallel()
 

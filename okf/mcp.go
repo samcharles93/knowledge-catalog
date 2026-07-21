@@ -128,6 +128,30 @@ type searchConceptsArgs struct {
 	Query string `json:"query" jsonschema:"Case-insensitive substring to search for across concept tags, titles, and bodies"`
 }
 
+type rememberArgs struct {
+	Type        string   `json:"type" jsonschema:"Concept type: Rule, Runbook, Concept, Service, Architecture, or a custom type. Codebase/API/Table/Reference are rejected -- those are owned by harvest and would be pruned."`
+	Title       string   `json:"title" jsonschema:"Short human title; used to derive the concept ID"`
+	Body        string   `json:"body" jsonschema:"Markdown body content of the memory"`
+	Description string   `json:"description,omitempty" jsonschema:"Optional one-line description"`
+	Resource    string   `json:"resource,omitempty" jsonschema:"Optional file path, PR link, or session reference"`
+	Tags        []string `json:"tags,omitempty" jsonschema:"Optional list of tags"`
+}
+
+// MCPRemember writes a new free-form concept (rule, insight, runbook step,
+// etc.) into the bundle and returns a short confirmation with the concept
+// ID and a preview of what was written.
+func MCPRemember(bundleRoot string, in RememberInput) (string, error) {
+	conceptID, err := Remember(bundleRoot, in)
+	if err != nil {
+		return "", err
+	}
+	preview := in.Body
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+	return fmt.Sprintf("Remembered `%s` [%s]: %s\n\n%s", conceptID, in.Type, in.Title, preview), nil
+}
+
 func newBundleServer(bundleRoot string) *sdk.Server {
 	server := sdk.NewServer(&sdk.Implementation{Name: "okf-knowledge-server", Version: "0.1.0"}, nil)
 
@@ -180,6 +204,20 @@ func newBundleServer(bundleRoot string) *sdk.Server {
 		Description: "Search concepts by a case-insensitive substring across tags, titles, and bodies.",
 	}, func(_ context.Context, _ *sdk.CallToolRequest, args searchConceptsArgs) (*sdk.CallToolResult, any, error) {
 		text, err := MCPSearchConcepts(bundleRoot, args.Query)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(text), nil, nil
+	})
+
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "okf_remember",
+		Description: "Capture a free-form memory (coding rule, session insight, runbook step, etc.) as a new validated OKF concept document.",
+	}, func(_ context.Context, _ *sdk.CallToolRequest, args rememberArgs) (*sdk.CallToolResult, any, error) {
+		text, err := MCPRemember(bundleRoot, RememberInput{
+			Type: args.Type, Title: args.Title, Body: args.Body,
+			Description: args.Description, Resource: args.Resource, Tags: args.Tags,
+		})
 		if err != nil {
 			return nil, nil, err
 		}

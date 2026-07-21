@@ -95,6 +95,48 @@ func TestRunHarvestRejectsUnknownType(t *testing.T) {
 	}
 }
 
+func TestRunRememberWritesBundle(t *testing.T) {
+	t.Parallel()
+
+	out := filepath.Join(t.TempDir(), ".okf")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"remember", "--type", "Rule", "--title", "Always run golangci-lint",
+		"--body", "Run golangci-lint before every Go commit.", "--out", out,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(remember) = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Remembered") {
+		t.Errorf("stderr = %q, want remember summary", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(out, "rules", "Always_run_golangci_lint.md")); err != nil {
+		t.Errorf("concept file not written: %v", err)
+	}
+}
+
+func TestRunRememberRejectsMissingTypeOrTitle(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"remember", "--body", "x", "--out", t.TempDir()}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run(remember without type/title) = %d, want 2; stderr = %q", code, stderr.String())
+	}
+}
+
+func TestRunRememberRejectsReservedType(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"remember", "--type", "Codebase", "--title", "should fail", "--body", "x", "--out", t.TempDir(),
+	}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run(remember reserved type) = %d, want 1; stderr = %q", code, stderr.String())
+	}
+}
+
 func TestRunVisualizeWritesHTML(t *testing.T) {
 	t.Parallel()
 
