@@ -5,7 +5,7 @@ tags:
     - overview
     - architecture
     - codebase
-timestamp: "2026-07-21T17:53:05Z"
+timestamp: "2026-07-21T18:15:48Z"
 title: knowledge-catalog Overview
 type: Architecture
 ---
@@ -79,7 +79,22 @@ okf harvest --type openapi --src openapi.yaml --out .okf
 okf harvest --type sql --src schema.sql --out .okf
 ```
 
-### 4. Validate Knowledge Base Integrity
+### 4. Remember a Concept Directly
+
+Not everything worth keeping comes from a mechanical harvest. Capture a coding rule, session insight, or runbook step as a validated concept document:
+
+```bash
+okf remember --type Rule --title "Always run golangci-lint before committing Go changes" \
+  --body "Run golangci-lint before every Go commit." --out .okf
+
+# Or pipe a longer body in via stdin:
+echo "Harvest pruning is scoped per-namespace; see extract.go." \
+  | okf remember --type Concept --title "Harvest pruning scoping" --out .okf
+```
+
+`--type` must be `Rule`, `Runbook`, `Concept`, `Service`, `Architecture`, or a custom type of your choosing — `Codebase`, `API`, `Table`, and `Reference` are reserved for harvested concepts and are rejected, since a manually-written file there would be silently deleted by the next matching harvest.
+
+### 5. Validate Knowledge Base Integrity
 
 ```bash
 okf validate --bundle .okf
@@ -87,7 +102,7 @@ okf validate --bundle .okf
 
 Checks YAML frontmatter schema compliance, required fields, broken links, and orphan concepts.
 
-### 5. Export Context for AI Coding Agents
+### 6. Export Context for AI Coding Agents
 
 ```bash
 # Output concise summary context for system prompts
@@ -97,7 +112,7 @@ okf context --bundle .okf
 okf context --bundle .okf --concept services/user-service
 ```
 
-### 6. Generate Offline Interactive Visualization
+### 7. Generate Offline Interactive Visualization
 
 ```bash
 okf visualize --bundle .okf --out .okf/viz.html
@@ -130,7 +145,9 @@ Available MCP Tools:
 - `okf_list_concepts`: Returns all concepts and metadata.
 - `okf_get_concept`: Returns detailed concept body and links.
 - `okf_get_context`: Returns progressive disclosure summary context.
-- `okf_validate_bundle`: Returns bundle health and validation report.
+- `okf_search_concepts`: Case-insensitive search across tags, titles, and bodies.
+- `okf_validate`: Returns bundle health and validation report.
+- `okf_remember`: Writes a new free-form concept (rule, insight, runbook step, etc.) directly, without a harvest.
 
 ---
 
@@ -178,6 +195,8 @@ Distributed under the [Apache 2.0 License](LICENSE.md).
 * [mcp_test.go](/codebase/okf/mcp_test.md) - `okf/mcp_test.go`
 * [paths.go](/codebase/okf/paths.md) - `okf/paths.go`
 * [paths_test.go](/codebase/okf/paths_test.md) - `okf/paths_test.go`
+* [remember.go](/codebase/okf/remember.md) - `okf/remember.go`
+* [remember_test.go](/codebase/okf/remember_test.md) - `okf/remember_test.go`
 * [service.go](/codebase/okf/service.md) - `okf/service.go`
 * [service_test.go](/codebase/okf/service_test.md) - `okf/service_test.go`
 * [synthesizer.go](/codebase/okf/synthesizer.md) - `okf/synthesizer.go`

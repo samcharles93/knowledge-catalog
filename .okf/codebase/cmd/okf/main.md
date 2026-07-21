@@ -1,10 +1,10 @@
 ---
-description: Source module cmd/okf/main.go (432 lines).
+description: Source module cmd/okf/main.go (478 lines).
 resource: cmd/okf/main.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:53:05Z"
+timestamp: "2026-07-21T18:15:48Z"
 title: main.go
 type: Module
 ---
@@ -12,7 +12,7 @@ type: Module
 # Module main.go
 
 **Path**: `cmd/okf/main.go`  
-**Lines**: 432
+**Lines**: 478
 
 ## Snippet Preview
 

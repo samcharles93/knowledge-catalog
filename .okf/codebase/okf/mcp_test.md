@@ -1,10 +1,10 @@
 ---
-description: Source module okf/mcp_test.go (136 lines).
+description: Source module okf/mcp_test.go (176 lines).
 resource: okf/mcp_test.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:53:05Z"
+timestamp: "2026-07-21T18:15:48Z"
 title: mcp_test.go
 type: Module
 ---
@@ -12,7 +12,7 @@ type: Module
 # Module mcp_test.go
 
 **Path**: `okf/mcp_test.go`  
-**Lines**: 136
+**Lines**: 176
 
 ## Snippet Preview
 

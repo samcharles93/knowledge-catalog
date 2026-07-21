@@ -190,6 +190,7 @@ Coding agents MAY query OKF bundles via the `okf` CLI or Model Context Protocol 
 - `okf_search_concepts`: Semantic/text search across tags, titles, and bodies.
 - `okf_get_context`: Formats a concise bundle summary for prompt injection.
 - `okf_validate`: Validates bundle integrity, links, and schema compliance.
+- `okf_remember`: Writes a new free-form concept (rule, insight, runbook step, etc.), satisfying the "add concept documents" duty in 6.1 without requiring a mechanical harvest.
 
 ---
 

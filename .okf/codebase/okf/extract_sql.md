@@ -4,7 +4,7 @@ resource: okf/extract_sql.go
 tags:
     - go
     - source
-timestamp: "2026-07-21T17:53:05Z"
+timestamp: "2026-07-21T18:15:48Z"
 title: extract_sql.go
 type: Module
 ---
