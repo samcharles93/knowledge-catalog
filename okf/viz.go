@@ -103,57 +103,38 @@ func extractVizLinks(body, docDir, bundleRoot string) []string {
 }
 
 func walkVizConcepts(bundleRoot string) ([]vizConcept, error) {
-	var paths []string
-	err := filepath.WalkDir(bundleRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") || d.Name() == indexFileName {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	})
+	files, err := walkConceptFiles(bundleRoot)
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
 
-	concepts := make([]vizConcept, 0, len(paths))
-	for _, path := range paths {
-		id, err := ConceptID(bundleRoot, path)
-		if err != nil {
-			continue
-		}
-		conceptID := strings.Join(id, "/")
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		doc, err := ParseDocument(string(data))
-		if err != nil {
+	concepts := make([]vizConcept, 0, len(files))
+	for _, f := range files {
+		if f.Err != nil {
 			continue
 		}
 
-		fm := doc.Frontmatter
+		fm := f.Doc.Frontmatter
 		tags := frontmatterStringSlice(fm["tags"])
 		if tags == nil {
 			tags = []string{}
 		}
 
 		concepts = append(concepts, vizConcept{
-			ID:          conceptID,
+			ID:          f.ID,
 			Type:        stringFrontmatterOr(fm["type"], "Unknown"),
-			Title:       stringFrontmatterOr(fm["title"], conceptID),
+			Title:       stringFrontmatterOr(fm["title"], f.ID),
 			Description: stringFrontmatterOr(fm["description"], ""),
 			Resource:    stringFrontmatterOr(fm["resource"], ""),
 			Tags:        tags,
-			Body:        doc.Body,
-			LinksTo:     extractVizLinks(doc.Body, filepath.Dir(path), bundleRoot),
+			Body:        f.Doc.Body,
+			LinksTo:     extractVizLinks(f.Doc.Body, filepath.Dir(f.Path), bundleRoot),
 		})
 	}
 	return concepts, nil
 }
 
-func buildVizGraph(concepts []vizConcept) map[string]any {
+func buildVizGraph(concepts []vizConcept) (graph map[string]any, edgeCount int) {
 	ids := make(map[string]bool, len(concepts))
 	for _, c := range concepts {
 		ids[c.ID] = true
@@ -202,7 +183,7 @@ func buildVizGraph(concepts []vizConcept) map[string]any {
 		"bodies":  bodies,
 		"types":   types,
 		"palette": typePalette,
-	}
+	}, len(edges)
 }
 
 // GenerateVisualization walks a bundle, builds a concept/link graph, and
@@ -217,7 +198,7 @@ func GenerateVisualization(bundleRoot string, outPath string, bundleName string)
 	if err != nil {
 		return VizStats{}, err
 	}
-	graph := buildVizGraph(concepts)
+	graph, edgeCount := buildVizGraph(concepts)
 
 	tmpl, err := vizAssets.ReadFile("viewer/viz.html")
 	if err != nil {
@@ -264,12 +245,7 @@ func GenerateVisualization(bundleRoot string, outPath string, bundleName string)
 
 	return VizStats{
 		Concepts: len(concepts),
-		Edges:    len(edges(graph)),
+		Edges:    edgeCount,
 		Bytes:    len(html),
 	}, nil
-}
-
-func edges(graph map[string]any) []any {
-	e, _ := graph["edges"].([]any)
-	return e
 }

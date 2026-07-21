@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,47 +12,25 @@ import (
 // MCPListConcepts renders a one-line-per-concept listing (id, type, title,
 // description) for every concept in the bundle, excluding index/log files.
 func MCPListConcepts(bundleRoot string) (string, error) {
-	var paths []string
-	err := filepath.WalkDir(bundleRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") || reservedConceptFileNames[d.Name()] {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	})
+	files, err := walkConceptFiles(bundleRoot)
 	if err != nil {
 		return "", err
 	}
-	sort.Strings(paths)
-
-	if len(paths) == 0 {
+	if len(files) == 0 {
 		return "No concepts found.", nil
 	}
 
-	lines := make([]string, 0, len(paths))
-	for _, path := range paths {
-		id, err := ConceptID(bundleRoot, path)
-		if err != nil {
+	lines := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.Err != nil {
+			lines = append(lines, fmt.Sprintf("- `%s` (Parse Error)", f.ID))
 			continue
 		}
-		relID := strings.Join(id, "/")
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			lines = append(lines, fmt.Sprintf("- `%s` (Parse Error)", relID))
-			continue
-		}
-		doc, err := ParseDocument(string(data))
-		if err != nil {
-			lines = append(lines, fmt.Sprintf("- `%s` (Parse Error)", relID))
-			continue
-		}
-
-		fm := doc.Frontmatter
+		fm := f.Doc.Frontmatter
 		typ := stringFrontmatterOr(fm["type"], "Concept")
-		title := stringFrontmatterOr(fm["title"], relID)
+		title := stringFrontmatterOr(fm["title"], f.ID)
 		desc := stringFrontmatterOr(fm["description"], "")
-		lines = append(lines, fmt.Sprintf("- `%s` [%s]: %s - %s", relID, typ, title, desc))
+		lines = append(lines, fmt.Sprintf("- `%s` [%s]: %s - %s", f.ID, typ, title, desc))
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -110,7 +85,7 @@ var _ http.Handler = (*MCPServer)(nil)
 func NewMCPServer(bundleRoot string) *MCPServer {
 	s := &MCPServer{BundleRoot: bundleRoot}
 	s.handler = sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
-		return newBundleServer(bundleRoot)
+		return newBundleServer(s.BundleRoot)
 	}, nil)
 	return s
 }
@@ -209,37 +184,20 @@ type conceptSummary struct {
 // bundle directory or an unreadable/malformed file just yields fewer
 // entries rather than failing server startup.
 func discoverConcepts(bundleRoot string) []conceptSummary {
-	var paths []string
-	_ = filepath.WalkDir(bundleRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") || reservedConceptFileNames[d.Name()] {
-			return nil
-		}
-		paths = append(paths, path)
+	files, err := walkConceptFiles(bundleRoot)
+	if err != nil {
 		return nil
-	})
-	sort.Strings(paths)
+	}
 
-	summaries := make([]conceptSummary, 0, len(paths))
-	for _, path := range paths {
-		id, err := ConceptID(bundleRoot, path)
-		if err != nil {
+	summaries := make([]conceptSummary, 0, len(files))
+	for _, f := range files {
+		if f.Err != nil {
 			continue
 		}
-		conceptID := strings.Join(id, "/")
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		doc, err := ParseDocument(string(data))
-		if err != nil {
-			continue
-		}
-
 		summaries = append(summaries, conceptSummary{
-			ID:          conceptID,
-			Title:       stringFrontmatterOr(doc.Frontmatter["title"], conceptID),
-			Description: stringFrontmatterOr(doc.Frontmatter["description"], ""),
+			ID:          f.ID,
+			Title:       stringFrontmatterOr(f.Doc.Frontmatter["title"], f.ID),
+			Description: stringFrontmatterOr(f.Doc.Frontmatter["description"], ""),
 		})
 	}
 	return summaries

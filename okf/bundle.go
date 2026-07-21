@@ -18,6 +18,58 @@ var reservedConceptFileNames = map[string]bool{
 
 var linkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
+// ConceptFile is one discovered concept document: its ID, on-disk path,
+// and parsed contents. Err is set instead of Doc when the file could not
+// be read (ParseDocument itself is self-healing and never fails).
+type ConceptFile struct {
+	ID   string
+	Path string
+	Doc  Document
+	Err  error
+}
+
+// walkConceptFiles discovers every concept document in a bundle (all .md
+// files except reserved names like index.md/log.md), sorted by path. It is
+// the single shared traversal used by index generation, validation, the
+// viewer, and the MCP server, so "what counts as a concept file" only has
+// to be defined once.
+func walkConceptFiles(root string) ([]ConceptFile, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") || reservedConceptFileNames[d.Name()] {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+
+	files := make([]ConceptFile, 0, len(paths))
+	for _, path := range paths {
+		id, err := ConceptID(root, path)
+		if err != nil {
+			continue
+		}
+		conceptID := strings.Join(id, "/")
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			files = append(files, ConceptFile{ID: conceptID, Path: path, Err: err})
+			continue
+		}
+		doc, err := ParseDocument(string(data))
+		if err != nil {
+			files = append(files, ConceptFile{ID: conceptID, Path: path, Err: err})
+			continue
+		}
+		files = append(files, ConceptFile{ID: conceptID, Path: path, Doc: doc})
+	}
+	return files, nil
+}
+
 // Issue is a single validation error or warning attached to a concept.
 type Issue struct {
 	ConceptID string
@@ -228,53 +280,39 @@ func ValidateBundle(root string) Report {
 		return report
 	}
 
-	conceptFiles := map[string]string{}
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
-			return nil
-		}
-		if reservedConceptFileNames[d.Name()] {
-			return nil
-		}
-		id, err := ConceptID(root, path)
-		if err != nil {
-			return nil
-		}
-		conceptFiles[strings.Join(id, "/")] = path
-		return nil
-	})
-	report.TotalConcepts = len(conceptFiles)
+	concepts, err := walkConceptFiles(root)
+	if err != nil {
+		report.Errors = append(report.Errors, Issue{Message: fmt.Sprintf("Failed to walk bundle: %v", err), Path: root})
+		return report
+	}
+	report.TotalConcepts = len(concepts)
+
+	conceptFiles := make(map[string]string, len(concepts))
+	for _, c := range concepts {
+		conceptFiles[c.ID] = c.Path
+	}
 
 	documents := map[string]Document{}
-	for conceptID, path := range conceptFiles {
-		data, err := os.ReadFile(path)
-		if err != nil {
+	for _, c := range concepts {
+		if c.Err != nil {
 			report.Errors = append(report.Errors, Issue{
-				ConceptID: conceptID, Path: path,
-				Message: fmt.Sprintf("Failed to read/parse document: %v", err),
+				ConceptID: c.ID, Path: c.Path,
+				Message: fmt.Sprintf("Failed to read/parse document: %v", c.Err),
 			})
 			continue
 		}
-		doc, err := ParseDocument(string(data))
-		if err != nil {
+		if err := c.Doc.Validate(); err != nil {
 			report.Errors = append(report.Errors, Issue{
-				ConceptID: conceptID, Path: path,
-				Message: fmt.Sprintf("Failed to read/parse document: %v", err),
+				ConceptID: c.ID, Path: c.Path, Message: err.Error(),
 			})
 			continue
 		}
-		if err := doc.Validate(); err != nil {
-			report.Errors = append(report.Errors, Issue{
-				ConceptID: conceptID, Path: path, Message: err.Error(),
-			})
-			continue
-		}
-		for _, w := range doc.Warnings() {
+		for _, w := range c.Doc.Warnings() {
 			report.Warnings = append(report.Warnings, Issue{
-				ConceptID: conceptID, Path: path, Message: w, Warning: true,
+				ConceptID: c.ID, Path: c.Path, Message: w, Warning: true,
 			})
 		}
-		documents[conceptID] = doc
+		documents[c.ID] = c.Doc
 	}
 
 	outgoingLinks := map[string][]string{}
