@@ -49,6 +49,28 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Publishes a Homebrew formula to samcharles93/homebrew-tap on every
+# release. Uses the deprecated (but still functional) `brews` key rather
+# than the newer `homebrew_casks`, since a CLI tool is a Formula, not a
+# Cask, semantically — see https://docs.brew.sh/Formula-Cookbook.
+brews:
+  - name: okf
+    ids: [okf]
+    repository:
+      owner: samcharles93
+      name: homebrew-tap
+      branch: main
+    directory: Formula
+    homepage: "https://github.com/samcharles93/knowledge-catalog"
+    description: "Open Knowledge Format (OKF) toolkit — a vendor-neutral CLI and MCP server for versioned, agent-readable project knowledge bundles."
+    license: "Apache-2.0"
+    commit_author:
+      name: samcharles93
+      email: samuel.catlow@gmail.com
+    commit_msg_template: "brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    test: |
+      system "#{bin}/okf version"
+
 snapshot:
   version_template: "{{ .Tag }}-next"
 

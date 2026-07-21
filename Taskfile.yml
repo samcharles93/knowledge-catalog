@@ -13,14 +13,9 @@ tasks:
   check:
     desc: Format-check, vet, lint, and test the whole module
     cmds:
-      - |
-        unformatted=$(gofmt -l .)
-        if [ -n "$unformatted" ]; then
-          echo "gofmt needs to be run on:"
-          echo "$unformatted"
-          exit 1
-        fi
       - go vet ./...
+      - go fix ./...
+      - gofumpt -w .
       - golangci-lint run ./...
       - go test ./...
 

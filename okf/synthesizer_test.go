@@ -31,8 +31,12 @@ func TestSynthesizeDescriptionFallsBackWithoutDescriptions(t *testing.T) {
 	t.Parallel()
 
 	children := []ChildSummary{
-		{Title: "one"}, {Title: "two"}, {Title: "three"},
-		{Title: "four"}, {Title: "five"}, {Title: "six"},
+		{Title: "one"},
+		{Title: "two"},
+		{Title: "three"},
+		{Title: "four"},
+		{Title: "five"},
+		{Title: "six"},
 	}
 	got := SynthesizeDescription("services", children)
 	if !strings.HasPrefix(got, "Contains 6 concepts (one, two, three, four, five and 1 more).") {
