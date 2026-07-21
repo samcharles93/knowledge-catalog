@@ -59,6 +59,40 @@ func TestSQLExtractorHandlesMultipleTablesAndQuotedNames(t *testing.T) {
 	}
 }
 
+// TestSQLExtractorExportBundlePrunesDroppedTables covers re-harvesting the
+// same DDL file after a table was dropped/renamed: the extractor fully owns
+// the database/ namespace for a given schema file, so stale table concepts
+// from a previous version of the schema must not linger.
+func TestSQLExtractorExportBundlePrunesDroppedTables(t *testing.T) {
+	t.Parallel()
+
+	sqlFile := filepath.Join(t.TempDir(), "schema.sql")
+	if err := os.WriteFile(sqlFile, []byte("CREATE TABLE users (\n  id INT\n);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	ext := SQLExtractor{SQLPath: sqlFile}
+	if _, err := ext.ExportBundle(out); err != nil {
+		t.Fatalf("ExportBundle() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "database", "users.md")); err != nil {
+		t.Fatalf("database/users.md not written: %v", err)
+	}
+
+	if err := os.WriteFile(sqlFile, []byte("CREATE TABLE accounts (\n  id INT\n);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ext.ExportBundle(out); err != nil {
+		t.Fatalf("second ExportBundle() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "database", "users.md")); !os.IsNotExist(err) {
+		t.Errorf("database/users.md should have been pruned after the table was dropped, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "database", "accounts.md")); err != nil {
+		t.Errorf("database/accounts.md not written: %v", err)
+	}
+}
+
 func TestSQLExtractorReturnsEmptyWhenNoTablesFound(t *testing.T) {
 	t.Parallel()
 

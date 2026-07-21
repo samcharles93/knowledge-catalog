@@ -75,6 +75,55 @@ func TestOpenAPIExtractorGeneratesOperationIDWhenMissing(t *testing.T) {
 	}
 }
 
+// TestOpenAPIExtractorExportBundlePrunesRemovedOperations covers re-harvesting
+// the same spec path after an operation was renamed/removed: the extractor
+// fully owns the api/ namespace for a given spec, so stale operation concepts
+// from a previous version of the spec must not linger.
+func TestOpenAPIExtractorExportBundlePrunesRemovedOperations(t *testing.T) {
+	t.Parallel()
+
+	spec := filepath.Join(t.TempDir(), "openapi.json")
+	writeSpec := func(opID string) {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"openapi": "3.0.0",
+			"info":    map[string]any{"title": "Test API", "version": "1.0"},
+			"paths": map[string]any{
+				"/users": map[string]any{
+					"get": map[string]any{"operationId": opID},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(spec, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeSpec("listUsers")
+	out := t.TempDir()
+	ext := OpenAPIExtractor{SpecPath: spec}
+	if _, err := ext.ExportBundle(out); err != nil {
+		t.Fatalf("ExportBundle() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "api", "listUsers.md")); err != nil {
+		t.Fatalf("api/listUsers.md not written: %v", err)
+	}
+
+	writeSpec("getUsers")
+	if _, err := ext.ExportBundle(out); err != nil {
+		t.Fatalf("second ExportBundle() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "api", "listUsers.md")); !os.IsNotExist(err) {
+		t.Errorf("api/listUsers.md should have been pruned after the operationId was renamed, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "api", "getUsers.md")); err != nil {
+		t.Errorf("api/getUsers.md not written: %v", err)
+	}
+}
+
 func keysOf(m map[string]Document) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

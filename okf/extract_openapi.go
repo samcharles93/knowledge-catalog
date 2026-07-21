@@ -104,6 +104,8 @@ func (e OpenAPIExtractor) ExtractConcepts() (map[string]Document, error) {
 	return concepts, nil
 }
 
+// ExportBundle fully owns the api/ namespace for this spec: re-harvesting
+// after an operation was renamed or removed prunes its stale concept file.
 func (e OpenAPIExtractor) ExportBundle(bundleRoot string) (int, error) {
-	return exportBundle(bundleRoot, e.ExtractConcepts)
+	return exportBundle(bundleRoot, e.ExtractConcepts, []string{"api"})
 }

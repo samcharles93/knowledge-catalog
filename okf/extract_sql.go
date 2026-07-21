@@ -75,8 +75,11 @@ func (e SQLExtractor) ExtractConcepts() (map[string]Document, error) {
 	return concepts, nil
 }
 
+// ExportBundle fully owns the database/ namespace for this schema file:
+// re-harvesting after a table was dropped or renamed prunes its stale
+// concept file.
 func (e SQLExtractor) ExportBundle(bundleRoot string) (int, error) {
-	return exportBundle(bundleRoot, e.ExtractConcepts)
+	return exportBundle(bundleRoot, e.ExtractConcepts, []string{"database"})
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {

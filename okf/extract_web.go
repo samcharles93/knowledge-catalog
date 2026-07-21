@@ -60,8 +60,11 @@ func (e WebExtractor) ExtractConcepts() (map[string]Document, error) {
 	return concepts, nil
 }
 
+// ExportBundle never prunes: web harvests are additive by design (users
+// accumulate --url flags across separate runs), so a run over a different
+// URL set must not delete references/ concepts an earlier run produced.
 func (e WebExtractor) ExportBundle(bundleRoot string) (int, error) {
-	return exportBundle(bundleRoot, e.ExtractConcepts)
+	return exportBundle(bundleRoot, e.ExtractConcepts, nil)
 }
 
 func slugify(s string) string {

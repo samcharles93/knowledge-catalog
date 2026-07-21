@@ -28,6 +28,17 @@ type CodebaseExtractor struct {
 
 var _ Extractor = CodebaseExtractor{}
 
+// isRepoRoot reports whether root is the whole project's root, as opposed
+// to a harvested subtree (e.g. `-src ./src`, a documented, supported
+// usage), by checking for a ".git" entry directly under it. Only a
+// repo-root harvest owns the singleton architecture/overview concept: a
+// subtree harvest producing (and overwriting) a project-wide overview
+// scoped to just that subtree would be actively misleading.
+func isRepoRoot(root string) bool {
+	_, err := os.Stat(filepath.Join(root, ".git"))
+	return err == nil
+}
+
 func (e CodebaseExtractor) ExtractConcepts() (map[string]Document, error) {
 	root, err := filepath.Abs(e.ProjectRoot)
 	if err != nil {
@@ -98,27 +109,46 @@ func (e CodebaseExtractor) ExtractConcepts() (map[string]Document, error) {
 		moduleLinks = append(moduleLinks, fmt.Sprintf("* [%s](/%s.md) - `%s`", name, conceptID, relSlash))
 	}
 
-	projectName := filepath.Base(root)
-	overviewBody := fmt.Sprintf("# Overview\n\n%s\n\n# Codebase Navigation\n\n", readme)
-	overviewBody += strings.Join(firstN(moduleLinks, 50), "\n")
+	if isRepoRoot(root) {
+		projectName := filepath.Base(root)
+		overviewBody := fmt.Sprintf("# Overview\n\n%s\n\n# Codebase Navigation\n\n", readme)
+		overviewBody += strings.Join(firstN(moduleLinks, 50), "\n")
 
-	concepts["architecture/overview"] = Document{
-		Frontmatter: map[string]any{
-			"type":        "Architecture",
-			"title":       projectName + " Overview",
-			"description": fmt.Sprintf("Root architecture and project structure for %s.", projectName),
-			"resource":    root,
-			"tags":        []string{"overview", "architecture", "codebase"},
-			"timestamp":   now,
-		},
-		Body: overviewBody,
+		concepts["architecture/overview"] = Document{
+			Frontmatter: map[string]any{
+				"type":        "Architecture",
+				"title":       projectName + " Overview",
+				"description": fmt.Sprintf("Root architecture and project structure for %s.", projectName),
+				"resource":    root,
+				"tags":        []string{"overview", "architecture", "codebase"},
+				"timestamp":   now,
+			},
+			Body: overviewBody,
+		}
 	}
 
 	return concepts, nil
 }
 
+// ExportBundle only prunes on a repo-root harvest. Concept IDs are always
+// root-relative ("codebase/" + path from whatever root was harvested), with
+// nothing to distinguish "this subtree's slice of codebase/" from the whole
+// namespace — so only a repo-root harvest, which walks the entire tree, is
+// actually authoritative for codebase/ (and architecture/overview) as a
+// whole. A subtree harvest (-src ./src, a documented, supported usage) only
+// ever sees its own slice and must not prune anything: doing so would
+// delete concepts belonging to the rest of the tree, exactly as it did
+// before this fix.
 func (e CodebaseExtractor) ExportBundle(bundleRoot string) (int, error) {
-	return exportBundle(bundleRoot, e.ExtractConcepts)
+	root, err := filepath.Abs(e.ProjectRoot)
+	if err != nil {
+		return 0, err
+	}
+	var prunePrefixes []string
+	if isRepoRoot(root) {
+		prunePrefixes = []string{"codebase", "architecture/overview"}
+	}
+	return exportBundle(bundleRoot, e.ExtractConcepts, prunePrefixes)
 }
 
 func firstN(s []string, n int) []string {
